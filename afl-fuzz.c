@@ -87,7 +87,6 @@
 /* Lots of globals, but mostly for the status UI and other things where it
    really makes no sense to haul them around as function parameters. */
 
-
 EXP_ST u8 *in_dir,                    /* Input directory with test cases  */
           *out_file,                  /* File to fuzz, if any             */
           *out_dir,                   /* Working & output directory       */
@@ -4346,7 +4345,7 @@ static void show_stats(void) {
 
   sprintf(tmp + banner_pad, "%s " cLCY VERSION cLGN
           " (%s)",  crash_mode ? cPIN "peruvian were-rabbit" : 
-          cYEL "american fuzzy lop", use_banner);
+          cYEL "american fuzzy lop (ece1776-nov-3-2021)", use_banner);
 
   SAYF("\n%s\n\n", tmp);
 
@@ -5400,6 +5399,7 @@ static u8 could_be_interest(u32 old_val, u32 new_val, u8 blen, u8 check_le) {
    function is a tad too long... returns 0 if fuzzed successfully, 1 if
    skipped or bailed out. */
 
+
 static u8 fuzz_one(char** argv) {
 
   s32 len, fd, temp_len, i, j;
@@ -5699,6 +5699,8 @@ re_run: // re-run when running in shadow mode
   }
 
   // @RB@: allocate the branch mask
+  
+  u32 ece1776_len = len;
 
   if (vanilla_afl || shadow_mode || (use_branch_mask == 0)){
       branch_mask = alloc_branch_mask(len + 1);
@@ -6000,7 +6002,22 @@ skip_simple_bitflip:
     ck_free(tmp_buf);
     // save the original branch mask for after the havoc stage 
     memcpy (orig_branch_mask, branch_mask, len + 1);
+	
   }
+  
+  FILE *ece1776_mask_dump = NULL;
+  u8 * fn = alloc_printf("%s/mutation_mask.data", out_dir);
+  ece1776_mask_dump = fopen(fn, "ab");
+  fwrite(branch_mask, sizeof(u8), ece1776_len + 1, ece1776_mask_dump);
+  ck_free(fn);
+  fclose(ece1776_mask_dump);
+	
+  FILE *ece1776_len_dump = NULL;
+  u8 * len_dump_fn = alloc_printf("%s/input_len.data", out_dir);
+  ece1776_len_dump = fopen(len_dump_fn, "ab");
+  fprintf(ece1776_len_dump, "%d::%d::%ld::%ld\n", len, ece1776_len, sizeof(branch_mask), sizeof(u8));
+  ck_free(len_dump_fn);
+  fclose(ece1776_len_dump);
 
   if (rb_fuzzing && (successful_branch_tries == 0)){
     if (blacklist_pos >= blacklist_size -1){
@@ -9006,6 +9023,9 @@ int main(int argc, char** argv) {
     start_time += 4000;
     if (stop_soon) goto stop_fuzzing;
   }
+	
+	
+  //bool done_len_dump = false;
 
   while (1) {
 
@@ -9055,6 +9075,18 @@ int main(int argc, char** argv) {
         sync_fuzzers(use_argv);
 
     }
+	
+	/*
+	if (!done_len_dump) {
+      FILE *ece1776_input_len = NULL;
+      u8 * input_len_fn = alloc_printf("%s/input_len.data", out_dir);
+      ece1776_input_len = fopen(input_len_fn, "w");
+      fprintf(ece1776_input_len, "%d", queue_cur->len);
+      ck_free(input_len_fn);
+      fclose(ece1776_input_len);
+	  done_len_dump = true;
+	}
+	*/
 
     skipped_fuzz = fuzz_one(use_argv);
 
@@ -9075,7 +9107,7 @@ int main(int argc, char** argv) {
   }
 
   if (queue_cur) show_stats();
-
+	
   write_bitmap();
   write_stats_file(0, 0, 0);
   save_auto();
