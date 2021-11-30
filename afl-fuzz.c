@@ -31,6 +31,8 @@
 #define DEBUG1 fileonly
 #define DEBUG2 fileonly2
 
+#define COLLECT_HAVOC_STATS 1
+
 #include "config.h"
 #include "types.h"
 #include "debug.h"
@@ -317,6 +319,7 @@ static u8 skip_deterministic_bootstrap = 0;
 
 static int trim_for_branch = 0;
 
+#ifdef COLLECT_HAVOC_STATS
 /* Havoc stage statistics */
 static u64 havoc_iter_per_case[17] = {0};
 static u64 havoc_rb_hit_per_case[17] = {0};
@@ -324,6 +327,7 @@ static u64 havoc_rb_hit_per_case[17] = {0};
 static u64 total_delete_len = 0;
 static u64 total_insert_len = 0;
 static u64 total_overwrite_len = 0;
+#endif
 
 /* Interesting values, as per config.h */
 
@@ -420,6 +424,7 @@ void fileonly (char const *fmt, ...) {
     va_end(ap);
 }
 
+#ifdef COLLECT_HAVOC_STATS
 void fileonly2 (char const *fmt, ...) {
     static FILE *f = NULL;
     if (f == NULL) {
@@ -432,6 +437,7 @@ void fileonly2 (char const *fmt, ...) {
     vfprintf(f, fmt, ap);
     va_end(ap);
 }
+#endif
 
 /* at the end of execution, dump the number of inputs hitting
    each branch to log */
@@ -4996,16 +5002,20 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len, u8 havoc_case) {
   }
 
   if (rb_fuzzing){
+#ifdef COLLECT_HAVOC_STATS
     if (0 <= havoc_case && havoc_case <= 16) {
       havoc_iter_per_case[havoc_case]++;
     }
+#endif
     total_branch_tries++;
     if (hits_branch(rb_fuzzing - 1)){
       successful_branch_tries++;
 
+#ifdef COLLECT_HAVOC_STATS
       if (0 <= havoc_case && havoc_case <= 16) {
         havoc_rb_hit_per_case[havoc_case]++;
       }
+#endif
 
     } else {
     }
@@ -7005,7 +7015,11 @@ havoc_stage:
     stage_cur_val = use_stacking;
     u8 havoc_case = 17;
  
+#ifdef COLLECT_HAVOC_STATS
     for (i = 0; i < 1; i++) {
+#else
+    for (i = 0; i < use_stacking; i++) {
+#endif
 
       switch (UR(15 + ((extras_cnt + a_extras_cnt) ? 2 : 0))) {
 
@@ -7016,9 +7030,11 @@ havoc_stage:
           if((posn = get_random_modifiable_posn(1, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
           FLIP_BIT(out_buf, posn);
 
+#ifdef COLLECT_HAVOC_STATS
           if (rb_fuzzing) {
             havoc_case = 0;
           }
+#endif
 
           break;
 
@@ -7029,9 +7045,11 @@ havoc_stage:
           if((posn = get_random_modifiable_posn(8, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
           out_buf[posn] = interesting_8[UR(sizeof(interesting_8))];
 
+#ifdef COLLECT_HAVOC_STATS
           if (rb_fuzzing) {
             havoc_case = 1;
           }
+#endif
 
           break;
 
@@ -7054,9 +7072,11 @@ havoc_stage:
 
           }
 
+#ifdef COLLECT_HAVOC_STATS
           if (rb_fuzzing) {
             havoc_case = 2;
           }
+#endif
 
           break;
 
@@ -7080,9 +7100,11 @@ havoc_stage:
 
           }
 
+#ifdef COLLECT_HAVOC_STATS
           if (rb_fuzzing) {
             havoc_case = 3;
           }
+#endif
 
           break;
 
@@ -7093,9 +7115,11 @@ havoc_stage:
           if((posn = get_random_modifiable_posn(8, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
           out_buf[posn] -= 1 + UR(ARITH_MAX);
 
+#ifdef COLLECT_HAVOC_STATS
           if (rb_fuzzing) {
             havoc_case = 4;
           }
+#endif
 
           break;
 
@@ -7106,9 +7130,11 @@ havoc_stage:
           if((posn = get_random_modifiable_posn(8, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
           out_buf[posn] += 1 + UR(ARITH_MAX);
 
+#ifdef COLLECT_HAVOC_STATS
           if (rb_fuzzing) {
             havoc_case = 5;
           }
+#endif
 
           break;
 
@@ -7133,9 +7159,11 @@ havoc_stage:
 
           }
 
+#ifdef COLLECT_HAVOC_STATS
           if (rb_fuzzing) {
             havoc_case = 6;
           }
+#endif
 
           break;
 
@@ -7160,9 +7188,11 @@ havoc_stage:
 
           }
 
+#ifdef COLLECT_HAVOC_STATS
           if (rb_fuzzing) {
             havoc_case = 7;
           }
+#endif
 
           break;
 
@@ -7187,9 +7217,11 @@ havoc_stage:
 
           }
 
+#ifdef COLLECT_HAVOC_STATS
           if (rb_fuzzing) {
             havoc_case = 8;
           }
+#endif
 
           break;
 
@@ -7214,9 +7246,11 @@ havoc_stage:
 
           }
 
+#ifdef COLLECT_HAVOC_STATS
           if (rb_fuzzing) {
             havoc_case = 9;
           }
+#endif
 
           break;
 
@@ -7229,9 +7263,11 @@ havoc_stage:
           if((posn = get_random_modifiable_posn(8, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
           out_buf[posn] ^= 1 + UR(255);
 
+#ifdef COLLECT_HAVOC_STATS
           if (rb_fuzzing) {
             havoc_case = 10;
           }
+#endif
 
           break;
 
@@ -7262,10 +7298,12 @@ havoc_stage:
 
             temp_len -= del_len;
 
+#ifdef COLLECT_HAVOC_STATS
             if (rb_fuzzing) {
               total_delete_len += del_len;
               havoc_case = 11;
             }
+#endif
 
             break;
 
@@ -7328,10 +7366,12 @@ havoc_stage:
             if (!position_map)
               PFATAL("Failure resizing position_map.\n");
 
+#ifdef COLLECT_HAVOC_STATS
             if (rb_fuzzing) {
               total_insert_len += clone_len;
               havoc_case = 13;
             }
+#endif
           }
 
           break;
@@ -7361,10 +7401,12 @@ havoc_stage:
             } else memset(out_buf + copy_to,
                           UR(2) ? UR(256) : out_buf[UR(temp_len)], copy_len);
 
+#ifdef COLLECT_HAVOC_STATS
             if (rb_fuzzing) {
               total_overwrite_len += copy_len;
               havoc_case = 14;
             }
+#endif
 
             break;
           }
@@ -7410,10 +7452,12 @@ havoc_stage:
 
             }
 
+#ifdef COLLECT_HAVOC_STATS
             if (rb_fuzzing) {
               total_overwrite_len += extra_len;
               havoc_case = 15;
             }
+#endif
 
             break;
 
@@ -7485,10 +7529,12 @@ havoc_stage:
             if (!position_map)
               PFATAL("Failure resizing position_map.\n");
 
+#ifdef COLLECT_HAVOC_STATS
             if (rb_fuzzing) {
               total_insert_len += extra_len;
               havoc_case = 16;
             }
+#endif
 
             break;
 
@@ -7501,6 +7547,7 @@ havoc_stage:
     if (common_fuzz_stuff(argv, out_buf, temp_len, havoc_case))
       goto abandon_entry;
 
+#ifdef COLLECT_HAVOC_STATS
     if (stage_cur % 10000 == 0) {
 
       // Calculate totals
@@ -7592,6 +7639,7 @@ havoc_stage:
       DEBUG2("    Total overwrite size: %i\n", total_overwrite_len);
       DEBUG2("----------------------------------------------------\n");
     }
+#endif
 
     /* out_buf might have been mangled a bit, so let's restore it to its
        original size and shape. */
