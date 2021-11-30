@@ -29,6 +29,9 @@
 #define _FILE_OFFSET_BITS 64
 
 #define DEBUG1 fileonly
+#define DEBUG2 fileonly2
+
+#define COLLECT_HAVOC_STATS 1
 
 #include "config.h"
 #include "types.h"
@@ -316,6 +319,15 @@ static u8 skip_deterministic_bootstrap = 0;
 
 static int trim_for_branch = 0;
 
+#ifdef COLLECT_HAVOC_STATS
+/* Havoc stage statistics */
+static u64 havoc_iter_per_case[17] = {0};
+static u64 havoc_rb_hit_per_case[17] = {0};
+
+static u64 total_delete_len = 0;
+static u64 total_insert_len = 0;
+static u64 total_overwrite_len = 0;
+#endif
 
 /* Interesting values, as per config.h */
 
@@ -412,6 +424,20 @@ void fileonly (char const *fmt, ...) {
     va_end(ap);
 }
 
+#ifdef COLLECT_HAVOC_STATS
+void fileonly2 (char const *fmt, ...) {
+    static FILE *f = NULL;
+    if (f == NULL) {
+      u8 * fn = alloc_printf("%s/havoc-rb-hits.log", out_dir);
+      f= fopen(fn, "w");
+      ck_free(fn);
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+}
+#endif
 
 /* at the end of execution, dump the number of inputs hitting
    each branch to log */
@@ -4936,7 +4962,7 @@ abort_trimming:
    error conditions, returning 1 if it's time to bail out. This is
    a helper function for fuzz_one(). */
 
-EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
+EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len, u8 havoc_case) {
 
   u8 fault;
 
@@ -4976,9 +5002,21 @@ EXP_ST u8 common_fuzz_stuff(char** argv, u8* out_buf, u32 len) {
   }
 
   if (rb_fuzzing){
+#ifdef COLLECT_HAVOC_STATS
+    if (0 <= havoc_case && havoc_case <= 16) {
+      havoc_iter_per_case[havoc_case]++;
+    }
+#endif
     total_branch_tries++;
     if (hits_branch(rb_fuzzing - 1)){
       successful_branch_tries++;
+
+#ifdef COLLECT_HAVOC_STATS
+      if (0 <= havoc_case && havoc_case <= 16) {
+        havoc_rb_hit_per_case[havoc_case]++;
+      }
+#endif
+
     } else {
     }
   }
@@ -5060,7 +5098,7 @@ static u32 trim_case_rb(char** argv, u8* in_buf, u32 in_len, u8* out_buf) {
       // not actually fault...
       /* using common fuzz stuff prevents us from having to mess with
          permanent changes to the queue */
-      fault = common_fuzz_stuff(argv, out_buf, in_len - trim_avail);
+      fault = common_fuzz_stuff(argv, out_buf, in_len - trim_avail, 17);
    
       // Not sure if we want this given that fault is no longer a fault
       if (stop_soon || fault == FAULT_ERROR) goto abort_rb_trimming;
@@ -5767,7 +5805,7 @@ re_run: // re-run when running in shadow mode
 
     FLIP_BIT(out_buf, stage_cur);
 
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+    if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
 
     FLIP_BIT(out_buf, stage_cur);
 
@@ -5893,7 +5931,7 @@ skip_simple_bitflip:
 
     out_buf[stage_cur] ^= 0xFF;
 
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+    if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
 
     if (rb_fuzzing && !shadow_mode && use_branch_mask > 0)
       if (hits_branch(rb_fuzzing - 1)){
@@ -5969,7 +6007,7 @@ skip_simple_bitflip:
       /* tail */
       memcpy(tmp_buf + stage_cur, out_buf + 1 + stage_cur, len - stage_cur - 1 );
 
-      if (common_fuzz_stuff(argv, tmp_buf, len - 1)) goto abandon_entry;
+      if (common_fuzz_stuff(argv, tmp_buf, len - 1, 17)) goto abandon_entry;
 
       /* if even with this byte deleted we hit the branch, can delete here */
       if (hits_branch(rb_fuzzing - 1)){
@@ -5988,7 +6026,7 @@ skip_simple_bitflip:
       /* tail */
       memcpy(tmp_buf + stage_cur + 1, out_buf + stage_cur, len - stage_cur);
 
-      if (common_fuzz_stuff(argv, tmp_buf, len + 1)) goto abandon_entry;
+      if (common_fuzz_stuff(argv, tmp_buf, len + 1, 17)) goto abandon_entry;
 
       /* if adding before still hit branch, can add */
       if (hits_branch(rb_fuzzing - 1)){
@@ -6057,7 +6095,7 @@ skip_simple_bitflip:
     FLIP_BIT(out_buf, stage_cur);
     FLIP_BIT(out_buf, stage_cur + 1);
 
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+    if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
 
     FLIP_BIT(out_buf, stage_cur);
     FLIP_BIT(out_buf, stage_cur + 1);
@@ -6101,7 +6139,7 @@ skip_simple_bitflip:
     FLIP_BIT(out_buf, stage_cur + 2);
     FLIP_BIT(out_buf, stage_cur + 3);
 
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+    if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
 
     FLIP_BIT(out_buf, stage_cur);
     FLIP_BIT(out_buf, stage_cur + 1);
@@ -6147,7 +6185,7 @@ skip_simple_bitflip:
 
     *(u16*)(out_buf + i) ^= 0xFFFF;
 
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+    if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
     stage_cur++;
 
     *(u16*)(out_buf + i) ^= 0xFFFF;
@@ -6194,7 +6232,7 @@ skip_simple_bitflip:
 
     *(u32*)(out_buf + i) ^= 0xFFFFFFFF;
 
-    if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+    if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
     stage_cur++;
 
     *(u32*)(out_buf + i) ^= 0xFFFFFFFF;
@@ -6257,7 +6295,7 @@ skip_bitflip:
         stage_cur_val = j;
         out_buf[i] = orig + j;
 
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
 
       } else stage_max--;
@@ -6269,7 +6307,7 @@ skip_bitflip:
         stage_cur_val = -j;
         out_buf[i] = orig - j;
 
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
 
       } else stage_max--;
@@ -6335,7 +6373,7 @@ skip_bitflip:
         stage_cur_val = j;
         *(u16*)(out_buf + i) = orig + j;
 
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
  
       } else stage_max--;
@@ -6345,7 +6383,7 @@ skip_bitflip:
         stage_cur_val = -j;
         *(u16*)(out_buf + i) = orig - j;
 
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
 
       } else stage_max--;
@@ -6360,7 +6398,7 @@ skip_bitflip:
         stage_cur_val = j;
         *(u16*)(out_buf + i) = SWAP16(SWAP16(orig) + j);
 
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
 
       } else stage_max--;
@@ -6370,7 +6408,7 @@ skip_bitflip:
         stage_cur_val = -j;
         *(u16*)(out_buf + i) = SWAP16(SWAP16(orig) - j);
 
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
 
       } else stage_max--;
@@ -6437,7 +6475,7 @@ skip_bitflip:
         stage_cur_val = j;
         *(u32*)(out_buf + i) = orig + j;
 
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
 
       } else stage_max--;
@@ -6447,7 +6485,7 @@ skip_bitflip:
         stage_cur_val = -j;
         *(u32*)(out_buf + i) = orig - j;
 
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
 
       } else stage_max--;
@@ -6461,7 +6499,7 @@ skip_bitflip:
         stage_cur_val = j;
         *(u32*)(out_buf + i) = SWAP32(SWAP32(orig) + j);
 
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
 
       } else stage_max--;
@@ -6471,7 +6509,7 @@ skip_bitflip:
         stage_cur_val = -j;
         *(u32*)(out_buf + i) = SWAP32(SWAP32(orig) - j);
 
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
 
       } else stage_max--;
@@ -6537,7 +6575,7 @@ skip_arith:
       stage_cur_val = interesting_8[j];
       out_buf[i] = interesting_8[j];
 
-      if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+      if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
 
       out_buf[i] = orig;
       stage_cur++;
@@ -6600,7 +6638,7 @@ skip_arith:
 
         *(u16*)(out_buf + i) = interesting_16[j];
 
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
 
       } else stage_max--;
@@ -6613,7 +6651,7 @@ skip_arith:
         stage_val_type = STAGE_VAL_BE;
 
         *(u16*)(out_buf + i) = SWAP16(interesting_16[j]);
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
 
       } else stage_max--;
@@ -6678,7 +6716,7 @@ skip_arith:
 
         *(u32*)(out_buf + i) = interesting_32[j];
 
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
 
       } else stage_max--;
@@ -6691,7 +6729,7 @@ skip_arith:
         stage_val_type = STAGE_VAL_BE;
 
         *(u32*)(out_buf + i) = SWAP32(interesting_32[j]);
-        if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+        if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
         stage_cur++;
 
       } else stage_max--;
@@ -6772,7 +6810,7 @@ skip_interest:
       last_len = extras[j].len;
       memcpy(out_buf + i, extras[j].data, last_len);
 
-      if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+      if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
 
       stage_cur++;
 
@@ -6822,7 +6860,7 @@ skip_interest:
       /* Copy tail */
       memcpy(ex_tmp + i + extras[j].len, out_buf + i, len - i);
 
-      if (common_fuzz_stuff(argv, ex_tmp, len + extras[j].len)) {
+      if (common_fuzz_stuff(argv, ex_tmp, len + extras[j].len, 17)) {
         ck_free(ex_tmp);
         goto abandon_entry;
       }
@@ -6895,7 +6933,7 @@ skip_user_extras:
       last_len = a_extras[j].len;
       memcpy(out_buf + i, a_extras[j].data, last_len);
 
-      if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+      if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
 
       stage_cur++;
 
@@ -6975,8 +7013,13 @@ havoc_stage:
     u32 posn;
 
     stage_cur_val = use_stacking;
+    u8 havoc_case = 17;
  
+#ifdef COLLECT_HAVOC_STATS
+    for (i = 0; i < 1; i++) {
+#else
     for (i = 0; i < use_stacking; i++) {
+#endif
 
       switch (UR(15 + ((extras_cnt + a_extras_cnt) ? 2 : 0))) {
 
@@ -6987,6 +7030,12 @@ havoc_stage:
           if((posn = get_random_modifiable_posn(1, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
           FLIP_BIT(out_buf, posn);
 
+#ifdef COLLECT_HAVOC_STATS
+          if (rb_fuzzing) {
+            havoc_case = 0;
+          }
+#endif
+
           break;
 
         case 1: 
@@ -6995,6 +7044,13 @@ havoc_stage:
 
           if((posn = get_random_modifiable_posn(8, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
           out_buf[posn] = interesting_8[UR(sizeof(interesting_8))];
+
+#ifdef COLLECT_HAVOC_STATS
+          if (rb_fuzzing) {
+            havoc_case = 1;
+          }
+#endif
+
           break;
 
         case 2:
@@ -7015,6 +7071,12 @@ havoc_stage:
               interesting_16[UR(sizeof(interesting_16) >> 1)]);
 
           }
+
+#ifdef COLLECT_HAVOC_STATS
+          if (rb_fuzzing) {
+            havoc_case = 2;
+          }
+#endif
 
           break;
 
@@ -7038,6 +7100,12 @@ havoc_stage:
 
           }
 
+#ifdef COLLECT_HAVOC_STATS
+          if (rb_fuzzing) {
+            havoc_case = 3;
+          }
+#endif
+
           break;
 
         case 4:
@@ -7046,6 +7114,13 @@ havoc_stage:
 
           if((posn = get_random_modifiable_posn(8, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
           out_buf[posn] -= 1 + UR(ARITH_MAX);
+
+#ifdef COLLECT_HAVOC_STATS
+          if (rb_fuzzing) {
+            havoc_case = 4;
+          }
+#endif
+
           break;
 
         case 5:
@@ -7054,6 +7129,13 @@ havoc_stage:
 
           if((posn = get_random_modifiable_posn(8, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
           out_buf[posn] += 1 + UR(ARITH_MAX);
+
+#ifdef COLLECT_HAVOC_STATS
+          if (rb_fuzzing) {
+            havoc_case = 5;
+          }
+#endif
+
           break;
 
         case 6:
@@ -7076,6 +7158,12 @@ havoc_stage:
               SWAP16(SWAP16(*(u16*)(out_buf + posn)) - num);
 
           }
+
+#ifdef COLLECT_HAVOC_STATS
+          if (rb_fuzzing) {
+            havoc_case = 6;
+          }
+#endif
 
           break;
 
@@ -7100,6 +7188,12 @@ havoc_stage:
 
           }
 
+#ifdef COLLECT_HAVOC_STATS
+          if (rb_fuzzing) {
+            havoc_case = 7;
+          }
+#endif
+
           break;
 
         case 8:
@@ -7122,6 +7216,12 @@ havoc_stage:
               SWAP32(SWAP32(*(u32*)(out_buf + posn)) - num);
 
           }
+
+#ifdef COLLECT_HAVOC_STATS
+          if (rb_fuzzing) {
+            havoc_case = 8;
+          }
+#endif
 
           break;
 
@@ -7146,6 +7246,12 @@ havoc_stage:
 
           }
 
+#ifdef COLLECT_HAVOC_STATS
+          if (rb_fuzzing) {
+            havoc_case = 9;
+          }
+#endif
+
           break;
 
         case 10:
@@ -7156,6 +7262,13 @@ havoc_stage:
 
           if((posn = get_random_modifiable_posn(8, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
           out_buf[posn] ^= 1 + UR(255);
+
+#ifdef COLLECT_HAVOC_STATS
+          if (rb_fuzzing) {
+            havoc_case = 10;
+          }
+#endif
+
           break;
 
 
@@ -7184,6 +7297,13 @@ havoc_stage:
                     temp_len - del_from - del_len + 1);
 
             temp_len -= del_len;
+
+#ifdef COLLECT_HAVOC_STATS
+            if (rb_fuzzing) {
+              total_delete_len += del_len;
+              havoc_case = 11;
+            }
+#endif
 
             break;
 
@@ -7245,6 +7365,13 @@ havoc_stage:
             position_map = ck_realloc(position_map, sizeof (u32) * (temp_len + 1));
             if (!position_map)
               PFATAL("Failure resizing position_map.\n");
+
+#ifdef COLLECT_HAVOC_STATS
+            if (rb_fuzzing) {
+              total_insert_len += clone_len;
+              havoc_case = 13;
+            }
+#endif
           }
 
           break;
@@ -7274,8 +7401,14 @@ havoc_stage:
             } else memset(out_buf + copy_to,
                           UR(2) ? UR(256) : out_buf[UR(temp_len)], copy_len);
 
-            break;
+#ifdef COLLECT_HAVOC_STATS
+            if (rb_fuzzing) {
+              total_overwrite_len += copy_len;
+              havoc_case = 14;
+            }
+#endif
 
+            break;
           }
 
         /* Values 15 and 16 can be selected only if there are any extras
@@ -7284,14 +7417,14 @@ havoc_stage:
         case 15: {
 
             /* Overwrite bytes with an extra. */
-
+            u32 extra_len;
             if (!extras_cnt || (a_extras_cnt && UR(2))) {
 
               /* No user-specified extras or odds in our favor. Let's use an
                  auto-detected one. */
 
               u32 use_extra = UR(a_extras_cnt);
-              u32 extra_len = a_extras[use_extra].len;
+              extra_len = a_extras[use_extra].len;
               u32 insert_at;
 
               if (extra_len > temp_len) break;
@@ -7306,7 +7439,7 @@ havoc_stage:
               /* No auto extras or odds in our favor. Use the dictionary. */
 
               u32 use_extra = UR(extras_cnt);
-              u32 extra_len = extras[use_extra].len;
+              extra_len = extras[use_extra].len;
               u32 insert_at;
 
               if (extra_len > temp_len) break;
@@ -7318,6 +7451,13 @@ havoc_stage:
               memcpy(out_buf + insert_at, extras[use_extra].data, extra_len);
 
             }
+
+#ifdef COLLECT_HAVOC_STATS
+            if (rb_fuzzing) {
+              total_overwrite_len += extra_len;
+              havoc_case = 15;
+            }
+#endif
 
             break;
 
@@ -7389,6 +7529,13 @@ havoc_stage:
             if (!position_map)
               PFATAL("Failure resizing position_map.\n");
 
+#ifdef COLLECT_HAVOC_STATS
+            if (rb_fuzzing) {
+              total_insert_len += extra_len;
+              havoc_case = 16;
+            }
+#endif
+
             break;
 
           }
@@ -7397,8 +7544,102 @@ havoc_stage:
 
     }
 
-    if (common_fuzz_stuff(argv, out_buf, temp_len))
+    if (common_fuzz_stuff(argv, out_buf, temp_len, havoc_case))
       goto abandon_entry;
+
+#ifdef COLLECT_HAVOC_STATS
+    if (stage_cur % 10000 == 0) {
+
+      // Calculate totals
+      u64 havoc_total_iter = 0;
+      u64 havoc_total_rb_hit = 0;
+      for (int i = 0; i < 17; i++) {
+          havoc_total_iter += havoc_iter_per_case[i];
+          havoc_total_rb_hit += havoc_rb_hit_per_case[i];
+      }
+
+      // Bit overwrites
+      u64 havoc_bit_overwrite_iter = havoc_iter_per_case[0];
+      u64 havoc_bit_overwrite_rb_hit = havoc_rb_hit_per_case[0];
+
+      // Byte overwrites
+      u64 havoc_byte_overwrite_iter = havoc_iter_per_case[1] +
+                                      havoc_iter_per_case[4] +
+                                      havoc_iter_per_case[5] +
+                                      havoc_iter_per_case[10];
+      u64 havoc_byte_overwrite_rb_hit = havoc_rb_hit_per_case[1] +
+                                        havoc_rb_hit_per_case[4] +
+                                        havoc_rb_hit_per_case[5] +
+                                        havoc_rb_hit_per_case[10];
+
+      // 2-Byte overwrites
+      u64 havoc_word_overwrite_iter = havoc_iter_per_case[2] +
+                                      havoc_iter_per_case[6] +
+                                      havoc_iter_per_case[7];
+      u64 havoc_word_overwrite_rb_hit = havoc_rb_hit_per_case[2] +
+                                        havoc_rb_hit_per_case[6] +
+                                        havoc_rb_hit_per_case[7];
+
+      // 4-Byte overwrites
+      u64 havoc_dword_overwrite_iter = havoc_iter_per_case[3] +
+                                       havoc_iter_per_case[8] +
+                                       havoc_iter_per_case[9];
+      u64 havoc_dword_overwrite_rb_hit = havoc_rb_hit_per_case[3] +
+                                         havoc_rb_hit_per_case[8] +
+                                         havoc_rb_hit_per_case[9];
+
+      // Delete
+      u64 havoc_delete_iter = havoc_iter_per_case[11];
+      u64 havoc_delete_rb_hit = havoc_rb_hit_per_case[11];
+
+      // Insert
+      u64 havoc_insert_iter = havoc_iter_per_case[13] +
+                                    havoc_iter_per_case[16];
+      u64 havoc_insert_rb_hit = havoc_rb_hit_per_case[13] +
+                                      havoc_rb_hit_per_case[16];
+
+      // Random-length overwrite
+      u64 havoc_rand_overwrite_iter = havoc_iter_per_case[14] +
+                                      havoc_iter_per_case[15];
+      u64 havoc_rand_overwrite_rb_hit = havoc_rb_hit_per_case[14] +
+                                        havoc_rb_hit_per_case[15];
+
+      DEBUG2("%sFinished stage %i of havoc stage, dumping stats...\n", shadow_prefix, stage_cur);
+      for (int i = 0; i < 17; i++) {
+        DEBUG2("    case %2i:\n", i);
+        DEBUG2("        hits  = %i\n", havoc_rb_hit_per_case[i]);
+        DEBUG2("        total = %i\n", havoc_iter_per_case[i]);
+      }
+      DEBUG2("    All mutations:\n");
+      DEBUG2("        total = %i\n", havoc_total_iter);
+      DEBUG2("        hits  = %i\n", havoc_total_rb_hit);
+      DEBUG2("    Bit overwrite mutations:\n");
+      DEBUG2("        total = %i\n", havoc_bit_overwrite_iter);
+      DEBUG2("        hits  = %i\n", havoc_bit_overwrite_rb_hit);
+      DEBUG2("    Byte overwrite mutations:\n");
+      DEBUG2("        total = %i\n", havoc_byte_overwrite_iter);
+      DEBUG2("        hits  = %i\n", havoc_byte_overwrite_rb_hit);
+      DEBUG2("    Word overwrite mutations:\n");
+      DEBUG2("        total = %i\n", havoc_word_overwrite_iter);
+      DEBUG2("        hits  = %i\n", havoc_word_overwrite_rb_hit);
+      DEBUG2("    Double word ovewrite mutations:\n");
+      DEBUG2("        total = %i\n", havoc_dword_overwrite_iter);
+      DEBUG2("        hits  = %i\n", havoc_dword_overwrite_rb_hit);
+      DEBUG2("    Delete mutations:\n");
+      DEBUG2("        total = %i\n", havoc_delete_iter);
+      DEBUG2("        hits  = %i\n", havoc_delete_rb_hit);
+      DEBUG2("    Insert mutations:\n");
+      DEBUG2("        total = %i\n", havoc_insert_iter);
+      DEBUG2("        hits  = %i\n", havoc_insert_rb_hit);
+      DEBUG2("    Random overwrite mutations:\n");
+      DEBUG2("        total = %i\n", havoc_rand_overwrite_iter);
+      DEBUG2("        hits  = %i\n", havoc_rand_overwrite_rb_hit);
+      DEBUG2("    Total delete size   : %i\n", total_delete_len);
+      DEBUG2("    Total insert size   : %i\n", total_insert_len);
+      DEBUG2("    Total overwrite size: %i\n", total_overwrite_len);
+      DEBUG2("----------------------------------------------------\n");
+    }
+#endif
 
     /* out_buf might have been mangled a bit, so let's restore it to its
        original size and shape. */
