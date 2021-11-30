@@ -7543,6 +7543,10 @@ havoc_stage:
                             UR(2) ? UR(256) : out_buf[UR(temp_len)], copy_len);
 					*/
 			}		
+			if (rb_fuzzing) {
+              total_overwrite_len += copy_len;
+              havoc_case = 14;
+            }
 			
             break;
           }
