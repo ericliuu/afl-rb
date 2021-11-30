@@ -1,0 +1,81 @@
+----------------------------------------------------
+Finished stage 0 of havoc stage, dumping stats...
+    case  0:
+        hits  = 754620
+        total = 2782064
+    case  1:
+        hits  = 1644070
+        total = 2781777
+    case  2:
+        hits  = 1625658
+        total = 2765723
+    case  3:
+        hits  = 1534970
+        total = 2670568
+    case  4:
+        hits  = 1646959
+        total = 2781716
+    case  5:
+        hits  = 1645140
+        total = 2780807
+    case  6:
+        hits  = 1634537
+        total = 2768830
+    case  7:
+        hits  = 1634740
+        total = 2767099
+    case  8:
+        hits  = 1546819
+        total = 2669655
+    case  9:
+        hits  = 1551985
+        total = 2670551
+    case 10:
+        hits  = 1645835
+        total = 2782663
+    case 11:
+        hits  = 991507
+        total = 3651952
+    case 12:
+        hits  = 0
+        total = 0
+    case 13:
+        hits  = 1400417
+        total = 2791534
+    case 14:
+        hits  = 953803
+        total = 2029502
+    case 15:
+        hits  = 1438403
+        total = 2579818
+    case 16:
+        hits  = 1464934
+        total = 2760913
+    All mutations:
+        total = 44035172
+        hits  = 23114397
+    Bit overwrite mutations:
+        total = 2782064
+        hits  = 754620
+    Byte overwrite mutations:
+        total = 11126963
+        hits  = 6582004
+    Word overwrite mutations:
+        total = 8301652
+        hits  = 4894935
+    Double word ovewrite mutations:
+        total = 8010774
+        hits  = 4633774
+    Delete mutations:
+        total = 3651952
+        hits  = 991507
+    Insert mutations:
+        total = 5552447
+        hits  = 2865351
+    Random overwrite mutations:
+        total = 4609320
+        hits  = 2392206
+    Total delete size   : 283714749
+    Total insert size   : 376283053
+    Total overwrite size: 166037590
+----------------------------------------------------
