@@ -63,6 +63,8 @@
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <sys/file.h>
+ 
+#define use_O_bit_lvl false
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined (__OpenBSD__)
 #  include <sys/sysctl.h>
@@ -1045,6 +1047,15 @@ static u32 get_random_modifiable_posn(u32 num_to_modify, u8 mod_type, u32 map_le
   } 
 
   return ret;
+  
+}
+static u32 get_random_modifiable_posn_O_bit_lvl(u32 map_len, u8* branch_mask_O_bit_lvl){
+  do {
+    u32 ret = UR(map_len*8);
+	if (branch_mask_O_bit_lvl[ret] & 1) {
+	  return ret;
+	}
+  } while(1);
   
 }
 
@@ -4345,7 +4356,7 @@ static void show_stats(void) {
 
   sprintf(tmp + banner_pad, "%s " cLCY VERSION cLGN
           " (%s)",  crash_mode ? cPIN "peruvian were-rabbit" : 
-          cYEL "american fuzzy lop (ece1776-nov-3-2021)", use_banner);
+          cYEL "american fuzzy lop (ece1776-nov-29-2021)", use_banner);
 
   SAYF("\n%s\n\n", tmp);
 
@@ -5411,6 +5422,14 @@ static u8 fuzz_one(char** argv) {
 
   u8  a_collect[MAX_AUTO_EXTRA];
   u32 a_len = 0;
+  
+  /* ECE1776 */
+  u8 * branch_mask_O_bit_lvl = 0;
+  //u8 * branch_mask_I_bit_lvl = 0;
+  //u8 * branch_mask_D_bit_lvl = 0;
+  u8 * orig_branch_mask_O_bit_lvl = 0;
+  //u8 * orig_branch_mask_I_bit_lvl = 0;
+  //u8 * orig_branch_mask_D_bit_lvl = 0;
 
   /* RB Vars*/
   u8 * branch_mask = 0;
@@ -5705,9 +5724,23 @@ re_run: // re-run when running in shadow mode
   if (vanilla_afl || shadow_mode || (use_branch_mask == 0)){
       branch_mask = alloc_branch_mask(len + 1);
       orig_branch_mask = alloc_branch_mask(len + 1);
+	  
+      branch_mask_O_bit_lvl = alloc_branch_mask((len + 1)*8);
+      //branch_mask_I_bit_lvl = alloc_branch_mask((len + 1)*8);
+      //branch_mask_D_bit_lvl = alloc_branch_mask((len + 1)*8);
+      orig_branch_mask_O_bit_lvl = alloc_branch_mask((len + 1)*8);
+      //orig_branch_mask_I_bit_lvl = alloc_branch_mask((len + 1)*8);
+      //orig_branch_mask_D_bit_lvl = alloc_branch_mask((len + 1)*8);
   } else {
       branch_mask = ck_alloc(len + 1);
       orig_branch_mask = ck_alloc(len + 1);
+	  
+      branch_mask_O_bit_lvl = ck_alloc((len + 1)*8);
+      //branch_mask_I_bit_lvl = ck_alloc((len + 1)*8);
+      //branch_mask_D_bit_lvl = ck_alloc((len + 1)*8);
+      orig_branch_mask_O_bit_lvl = ck_alloc((len + 1)*8);
+      //orig_branch_mask_I_bit_lvl = ck_alloc((len + 1)*8);
+      //orig_branch_mask_D_bit_lvl = ck_alloc((len + 1)*8);
   }
   // this will be used to store the valid modifiable positions
   // in the havoc stage. malloc'ing once to reduce overhead. 
@@ -5770,6 +5803,11 @@ re_run: // re-run when running in shadow mode
     FLIP_BIT(out_buf, stage_cur);
 
     if (common_fuzz_stuff(argv, out_buf, len)) goto abandon_entry;
+	
+	if (rb_fuzzing && !shadow_mode && use_branch_mask > 0)
+      if (hits_branch(rb_fuzzing - 1)){
+        branch_mask_O_bit_lvl[stage_cur] = 1;
+     }
 
     FLIP_BIT(out_buf, stage_cur);
 
@@ -6002,15 +6040,23 @@ skip_simple_bitflip:
     ck_free(tmp_buf);
     // save the original branch mask for after the havoc stage 
     memcpy (orig_branch_mask, branch_mask, len + 1);
+    memcpy (orig_branch_mask_O_bit_lvl, branch_mask_O_bit_lvl, (len + 1)*8);
 	
   }
   
   FILE *ece1776_mask_dump = NULL;
-  u8 * fn = alloc_printf("%s/mutation_mask.data", out_dir);
-  ece1776_mask_dump = fopen(fn, "ab");
+  u8 * mask_dump_fn = alloc_printf("%s/mutation_mask.data", out_dir);
+  ece1776_mask_dump = fopen(mask_dump_fn, "ab");
   fwrite(branch_mask, sizeof(u8), ece1776_len + 1, ece1776_mask_dump);
-  ck_free(fn);
+  ck_free(mask_dump_fn);
   fclose(ece1776_mask_dump);
+  
+  FILE *ece1776_mask_dump_O_bit_level = NULL;
+  u8 * mask_dump_O_bit_level_fn = alloc_printf("%s/mutation_mask_O_bit_level.data", out_dir);
+  ece1776_mask_dump_O_bit_level = fopen(mask_dump_O_bit_level_fn, "ab");
+  fwrite(branch_mask_O_bit_lvl, sizeof(u8), (ece1776_len + 1)*8, ece1776_mask_dump_O_bit_level);
+  ck_free(mask_dump_O_bit_level_fn);
+  fclose(ece1776_mask_dump_O_bit_level);
 	
   FILE *ece1776_len_dump = NULL;
   u8 * len_dump_fn = alloc_printf("%s/input_len.data", out_dir);
@@ -7000,9 +7046,14 @@ havoc_stage:
         case 0:
 
           /* Flip a single bit somewhere. Spooky! */
-
-          if((posn = get_random_modifiable_posn(1, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
-          FLIP_BIT(out_buf, posn);
+          
+		  if (!use_O_bit_lvl) {
+            if((posn = get_random_modifiable_posn(1, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
+            FLIP_BIT(out_buf, posn);
+          } else {
+		    posn = get_random_modifiable_posn_O_bit_lvl(temp_len, branch_mask_O_bit_lvl);
+            FLIP_BIT(out_buf, posn);
+          }
 
           break;
 
