@@ -32,6 +32,7 @@
 #define DEBUG2 fileonly2
 
 #define COLLECT_HAVOC_STATS 1
+#define USE_BIT_LEVEL 1
 
 #include "config.h"
 #include "types.h"
@@ -1073,6 +1074,40 @@ static u32 get_random_modifiable_posn(u32 num_to_modify, u8 mod_type, u32 map_le
 
   return ret;
   
+}
+
+static u32 get_random_modifiable_posn_bit_level_contiguous(u32 num_to_modify, u32 map_len, u8* branch_mask_bit_level){
+  u32 ret = 0xffffffff;
+  
+  u32 position_map_len = 0;
+  u8* position_map = alloc_branch_mask(map_len*8);
+  
+  int counter = 0;
+  bool valid_block = false;
+  
+  // Loop from back to front, count bits of 1
+  // When number of contiguous 1 >= num_to_modify, we start recording positions in position_map
+  for (int i = (map_len*8-1); i >= 0 ; i --){
+	if (branch_mask_bit_level[i] == 1) {
+	  counter++;
+	  if (counter >= num_to_modify) {
+	    valid_block = true;
+	  }
+	  if (valid_block) {
+		position_map[position_map_len++] = i;
+	  }
+	} else {
+	  // If 0, we need to reset counter and valid_block
+	  counter = 0;
+	  valid_block = false;
+	}
+  }
+  //DEBUG1("position_map_len: %d\n", position_map_len);
+  if (position_map_len){
+    u32 random_pos = UR(position_map_len);
+    ret =  position_map[random_pos];
+  } 
+  return ret;
 }
 
 // just need a random element of branch_mask which & with 4
@@ -5450,6 +5485,11 @@ static u8 fuzz_one(char** argv) {
   u8  a_collect[MAX_AUTO_EXTRA];
   u32 a_len = 0;
 
+#ifdef USE_BIT_LEVEL
+  u8 * branch_mask_bit_level = 0;
+  u8 * orig_branch_mask_bit_level = 0;
+#endif
+
   /* RB Vars*/
   u8 * branch_mask = 0;
   u8 * orig_branch_mask = 0;
@@ -5738,12 +5778,26 @@ re_run: // re-run when running in shadow mode
 
   // @RB@: allocate the branch mask
 
+#ifdef USE_BIT_LEVEL
+  u32 ece1776_len = len;
+#endif
+
   if (vanilla_afl || shadow_mode || (use_branch_mask == 0)){
       branch_mask = alloc_branch_mask(len + 1);
       orig_branch_mask = alloc_branch_mask(len + 1);
+	  
+#ifdef USE_BIT_LEVEL
+      branch_mask_bit_level = alloc_branch_mask(len*8 + 1);
+      orig_branch_mask_bit_level = alloc_branch_mask(len*8 + 1);
+#endif
   } else {
       branch_mask = ck_alloc(len + 1);
       orig_branch_mask = ck_alloc(len + 1);
+	  
+#ifdef USE_BIT_LEVEL
+      branch_mask_bit_level = ck_alloc(len*8 + 1);
+      orig_branch_mask_bit_level = ck_alloc(len*8 + 1);
+#endif
   }
   // this will be used to store the valid modifiable positions
   // in the havoc stage. malloc'ing once to reduce overhead. 
@@ -5806,6 +5860,13 @@ re_run: // re-run when running in shadow mode
     FLIP_BIT(out_buf, stage_cur);
 
     if (common_fuzz_stuff(argv, out_buf, len, 17)) goto abandon_entry;
+
+#ifdef USE_BIT_LEVEL
+    if (rb_fuzzing && !shadow_mode && use_branch_mask > 0)
+      if (hits_branch(rb_fuzzing - 1)){
+        branch_mask_bit_level[stage_cur] = 1;
+     }
+#endif
 
     FLIP_BIT(out_buf, stage_cur);
 
@@ -6038,6 +6099,33 @@ skip_simple_bitflip:
     ck_free(tmp_buf);
     // save the original branch mask for after the havoc stage 
     memcpy (orig_branch_mask, branch_mask, len + 1);
+  
+#ifdef USE_BIT_LEVEL
+    memcpy (orig_branch_mask_bit_level, branch_mask_bit_level, len*8 + 1);
+#endif
+	
+#ifdef USE_BIT_LEVEL
+  FILE *ece1776_mask_dump = NULL;
+  u8 * mask_dump_fn = alloc_printf("%s/mutation_mask.data", out_dir);
+  ece1776_mask_dump = fopen(mask_dump_fn, "ab");
+  fwrite(branch_mask, sizeof(u8), ece1776_len + 1, ece1776_mask_dump);
+  ck_free(mask_dump_fn);
+  fclose(ece1776_mask_dump);
+  
+  FILE *ece1776_mask_dump_O_bit_level = NULL;
+  u8 * mask_dump_O_bit_level_fn = alloc_printf("%s/mutation_mask_O_bit_level.data", out_dir);
+  ece1776_mask_dump_O_bit_level = fopen(mask_dump_O_bit_level_fn, "ab");
+  fwrite(branch_mask_bit_level, sizeof(u8), (ece1776_len + 1)*8, ece1776_mask_dump_O_bit_level);
+  ck_free(mask_dump_O_bit_level_fn);
+  fclose(ece1776_mask_dump_O_bit_level);
+	
+  FILE *ece1776_len_dump = NULL;
+  u8 * len_dump_fn = alloc_printf("%s/input_len.data", out_dir);
+  ece1776_len_dump = fopen(len_dump_fn, "ab");
+  fprintf(ece1776_len_dump, "%d::%d::%ld::%ld\n", len, ece1776_len, sizeof(branch_mask), sizeof(u8));
+  ck_free(len_dump_fn);
+  fclose(ece1776_len_dump);
+#endif
   }
 
   if (rb_fuzzing && (successful_branch_tries == 0)){
@@ -7027,8 +7115,13 @@ havoc_stage:
 
           /* Flip a single bit somewhere. Spooky! */
 
+#ifdef USE_BIT_LEVEL
+          if((posn = get_random_modifiable_posn_bit_level_contiguous(1, temp_len, branch_mask_bit_level)) == 0xffffffff) break;
+          FLIP_BIT(out_buf, posn);
+#else
           if((posn = get_random_modifiable_posn(1, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
           FLIP_BIT(out_buf, posn);
+#endif
 
 #ifdef COLLECT_HAVOC_STATS
           if (rb_fuzzing) {
@@ -7295,6 +7388,11 @@ havoc_stage:
             // the +1 copies over the last part of branch_mask
             memmove(branch_mask + del_from, branch_mask + del_from + del_len,
                     temp_len - del_from - del_len + 1);
+					
+#ifdef USE_BIT_LEVEL
+            memmove(branch_mask_bit_level + del_from*8, branch_mask_bit_level + (del_from + del_len)*8,
+                    (temp_len - del_from - del_len)*8 + 1);
+#endif
 
             temp_len -= del_len;
 
@@ -7318,6 +7416,10 @@ havoc_stage:
             u32 clone_from, clone_to, clone_len;
             u8* new_buf;
             u8* new_branch_mask; 
+			
+#ifdef USE_BIT_LEVEL
+            u8* new_branch_mask_bit_level; 
+#endif
 
             if (actually_clone) {
 
@@ -7335,10 +7437,16 @@ havoc_stage:
 
             new_buf = ck_alloc_nozero(temp_len + clone_len);
             new_branch_mask = alloc_branch_mask(temp_len + clone_len + 1);
+#ifdef USE_BIT_LEVEL
+            new_branch_mask_bit_level = alloc_branch_mask((temp_len + clone_len)*8 + 1);
+#endif
 
             /* Head */
             memcpy(new_buf, out_buf, clone_to);
             memcpy(new_branch_mask, branch_mask, clone_to);
+#ifdef USE_BIT_LEVEL
+            memcpy(new_branch_mask_bit_level, branch_mask_bit_level, clone_to*8);
+#endif
 
             /* Inserted part */
 
@@ -7353,12 +7461,22 @@ havoc_stage:
                    temp_len - clone_to);
             memcpy(new_branch_mask + clone_to + clone_len, branch_mask + clone_to,
                    temp_len - clone_to + 1);
+#ifdef USE_BIT_LEVEL
+            memcpy(new_branch_mask_bit_level + (clone_to + clone_len)*8, branch_mask_bit_level + clone_to*8,
+                   (temp_len - clone_to)*8 + 1);
+#endif
 
             ck_free(out_buf);
             ck_free(branch_mask);
+#ifdef USE_BIT_LEVEL
+            ck_free(branch_mask_bit_level);
+#endif
 
             out_buf = new_buf;
             branch_mask = new_branch_mask;
+#ifdef USE_BIT_LEVEL
+            branch_mask_bit_level = new_branch_mask_bit_level;
+#endif
 
             temp_len += clone_len;
 
@@ -7468,6 +7586,9 @@ havoc_stage:
             u32 use_extra, extra_len, insert_at = get_random_insert_posn(temp_len, branch_mask, position_map);
              if (insert_at == 0xffffffff) break;
             u8* new_buf, * new_branch_mask;
+#ifdef USE_BIT_LEVEL
+            u8* new_branch_mask_bit_level;
+#endif
 
             /* Insert an extra. Do the same dice-rolling stuff as for the
                previous case. */
@@ -7481,10 +7602,16 @@ havoc_stage:
 
               new_buf = ck_alloc_nozero(temp_len + extra_len);
               new_branch_mask = alloc_branch_mask(temp_len + extra_len + 1);
+#ifdef USE_BIT_LEVEL
+              new_branch_mask_bit_level = alloc_branch_mask((temp_len + extra_len)*8 + 1);
+#endif
 
               /* Head */
               memcpy(new_buf, out_buf, insert_at);
               memcpy(new_branch_mask, branch_mask, insert_at);
+#ifdef USE_BIT_LEVEL
+              memcpy(new_branch_mask_bit_level, branch_mask_bit_level, insert_at*8);
+#endif
 
               /* Inserted part */
               memcpy(new_buf + insert_at, a_extras[use_extra].data, extra_len);
@@ -7499,11 +7626,17 @@ havoc_stage:
               new_buf = ck_alloc_nozero(temp_len + extra_len);
 
               new_branch_mask = alloc_branch_mask(temp_len + extra_len + 1);
+#ifdef USE_BIT_LEVEL
+              new_branch_mask_bit_level = alloc_branch_mask((temp_len + extra_len)*8 + 1);
+#endif
 
 
               /* Head */
               memcpy(new_buf, out_buf, insert_at);
               memcpy(new_branch_mask, branch_mask, insert_at);
+#ifdef USE_BIT_LEVEL
+              memcpy(new_branch_mask_bit_level, branch_mask_bit_level, insert_at*8);
+#endif
 
 
               /* Inserted part */
@@ -7517,10 +7650,20 @@ havoc_stage:
 
             memcpy(new_branch_mask + insert_at + extra_len, branch_mask + insert_at,
                    temp_len - insert_at + 1);
+#ifdef USE_BIT_LEVEL
+            memcpy(new_branch_mask_bit_level + (insert_at + extra_len)*8, branch_mask_bit_level + insert_at*8,
+                   (temp_len - insert_at)*8 + 1);
+#endif
 
             ck_free(out_buf);
             ck_free(branch_mask);
+#ifdef USE_BIT_LEVEL
+            ck_free(branch_mask_bit_level);
+#endif
             branch_mask = new_branch_mask;
+#ifdef USE_BIT_LEVEL
+            branch_mask_bit_level = new_branch_mask_bit_level;
+#endif
 
             out_buf   = new_buf;
             temp_len += extra_len;
@@ -7646,6 +7789,9 @@ havoc_stage:
     if (temp_len < len) {
       out_buf = ck_realloc(out_buf, len);
       branch_mask = ck_realloc(branch_mask, len + 1);
+#ifdef USE_BIT_LEVEL
+      branch_mask_bit_level = ck_realloc(branch_mask_bit_level, len*8 + 1);
+#endif
       position_map = ck_realloc(position_map, sizeof (u32) * (len + 1));
       if (!position_map)
         PFATAL("Failure resizing position_map.\n");
@@ -7653,6 +7799,9 @@ havoc_stage:
     temp_len = len;
     memcpy(out_buf, in_buf, len);
     memcpy(branch_mask, orig_branch_mask, len + 1);
+#ifdef USE_BIT_LEVEL
+    memcpy(branch_mask_bit_level, orig_branch_mask_bit_level, len*8 + 1);
+#endif
 
 
     /* If we're finding new stuff, let's run for a bit longer, limits
@@ -7700,6 +7849,9 @@ retry_splicing:
     struct queue_entry* target;
     u32 tid, split_at;
     u8* new_buf, *new_branch_mask;
+#ifdef USE_BIT_LEVEL
+    u8* new_branch_mask_bit_level;
+#endif
 
     s32 f_diff, l_diff;
 
@@ -7779,6 +7931,17 @@ retry_splicing:
     orig_branch_mask = ck_alloc(len +1);
     //ck_realloc(orig_branch_mask, len + 1);
     memcpy (orig_branch_mask, branch_mask, len + 1);
+	
+#ifdef USE_BIT_LEVEL
+    new_branch_mask_bit_level = alloc_branch_mask(len*8 + 1);
+    memcpy(new_branch_mask_bit_level, branch_mask_bit_level, MIN(split_at*8, temp_len*8 + 1));
+    ck_free(branch_mask_bit_level);
+    branch_mask_bit_level = new_branch_mask_bit_level;
+    ck_free(orig_branch_mask_bit_level);
+    orig_branch_mask_bit_level = ck_alloc(len*8 + 1);
+    memcpy (orig_branch_mask_bit_level, branch_mask_bit_level, len*8 + 1);
+#endif
+
     position_map = ck_realloc(position_map, sizeof (u32) * (len + 1));
     if (!position_map)
       PFATAL("Failure resizing position_map.\n");
@@ -7827,6 +7990,11 @@ abandon_entry:
   ck_free(eff_map);
   ck_free(branch_mask);
   ck_free(orig_branch_mask);
+
+#ifdef USE_BIT_LEVEL
+  ck_free(branch_mask_bit_level);
+  ck_free(orig_branch_mask_bit_level);
+#endif
 
 
   return ret_val;
