@@ -1076,7 +1076,7 @@ static u32 get_random_modifiable_posn(u32 num_to_modify, u8 mod_type, u32 map_le
   
 }
 
-static u32 get_random_modifiable_posn_O_bit_lvl_contiguous(u32 num_to_modify, u32 map_len, u8* branch_mask_O_bit_lvl){
+static u32 get_random_modifiable_posn_bit_level_contiguous(u32 num_to_modify, u32 map_len, u8* branch_mask_bit_level){
   u32 ret = 0xffffffff;
   
   u32 position_map_len = 0;
@@ -1088,7 +1088,7 @@ static u32 get_random_modifiable_posn_O_bit_lvl_contiguous(u32 num_to_modify, u3
   // Loop from back to front, count bits of 1
   // When number of contiguous 1 >= num_to_modify, we start recording positions in position_map
   for (int i = (map_len*8-1); i >= 0 ; i --){
-	if (branch_mask_O_bit_lvl[i] == 1) {
+	if (branch_mask_bit_level[i] == 1) {
 	  counter++;
 	  if (counter >= num_to_modify) {
 	    valid_block = true;
@@ -5486,8 +5486,8 @@ static u8 fuzz_one(char** argv) {
   u32 a_len = 0;
 
 #ifdef USE_BIT_LEVEL
-  u8 * branch_mask_O_bit_lvl = 0;
-  u8 * orig_branch_mask_O_bit_lvl = 0;
+  u8 * branch_mask_bit_level = 0;
+  u8 * orig_branch_mask_bit_level = 0;
 #endif
 
   /* RB Vars*/
@@ -5787,16 +5787,16 @@ re_run: // re-run when running in shadow mode
       orig_branch_mask = alloc_branch_mask(len + 1);
 	  
 #ifdef USE_BIT_LEVEL
-      branch_mask_O_bit_lvl = alloc_branch_mask((len + 1)*8);
-      orig_branch_mask_O_bit_lvl = alloc_branch_mask((len + 1)*8);
+      branch_mask_bit_level = alloc_branch_mask(len*8 + 1);
+      orig_branch_mask_bit_level = alloc_branch_mask(len*8 + 1);
 #endif
   } else {
       branch_mask = ck_alloc(len + 1);
       orig_branch_mask = ck_alloc(len + 1);
 	  
 #ifdef USE_BIT_LEVEL
-      branch_mask_O_bit_lvl = ck_alloc((len + 1)*8);
-      orig_branch_mask_O_bit_lvl = ck_alloc((len + 1)*8);
+      branch_mask_bit_level = ck_alloc(len*8 + 1);
+      orig_branch_mask_bit_level = ck_alloc(len*8 + 1);
 #endif
   }
   // this will be used to store the valid modifiable positions
@@ -5864,7 +5864,7 @@ re_run: // re-run when running in shadow mode
 #ifdef USE_BIT_LEVEL
     if (rb_fuzzing && !shadow_mode && use_branch_mask > 0)
       if (hits_branch(rb_fuzzing - 1)){
-        branch_mask_O_bit_lvl[stage_cur] = 1;
+        branch_mask_bit_level[stage_cur] = 1;
      }
 #endif
 
@@ -6099,6 +6099,10 @@ skip_simple_bitflip:
     ck_free(tmp_buf);
     // save the original branch mask for after the havoc stage 
     memcpy (orig_branch_mask, branch_mask, len + 1);
+  
+#ifdef USE_BIT_LEVEL
+    memcpy (orig_branch_mask_bit_level, branch_mask_bit_level, len*8 + 1);
+#endif
 	
 #ifdef USE_BIT_LEVEL
   FILE *ece1776_mask_dump = NULL;
@@ -6111,7 +6115,7 @@ skip_simple_bitflip:
   FILE *ece1776_mask_dump_O_bit_level = NULL;
   u8 * mask_dump_O_bit_level_fn = alloc_printf("%s/mutation_mask_O_bit_level.data", out_dir);
   ece1776_mask_dump_O_bit_level = fopen(mask_dump_O_bit_level_fn, "ab");
-  fwrite(branch_mask_O_bit_lvl, sizeof(u8), (ece1776_len + 1)*8, ece1776_mask_dump_O_bit_level);
+  fwrite(branch_mask_bit_level, sizeof(u8), (ece1776_len + 1)*8, ece1776_mask_dump_O_bit_level);
   ck_free(mask_dump_O_bit_level_fn);
   fclose(ece1776_mask_dump_O_bit_level);
 	
@@ -6123,10 +6127,6 @@ skip_simple_bitflip:
   fclose(ece1776_len_dump);
 #endif
   }
-  
-#ifdef USE_BIT_LEVEL
-    memcpy (orig_branch_mask_O_bit_lvl, branch_mask_O_bit_lvl, (len + 1)*8);
-#endif
 
   if (rb_fuzzing && (successful_branch_tries == 0)){
     if (blacklist_pos >= blacklist_size -1){
@@ -7116,7 +7116,7 @@ havoc_stage:
           /* Flip a single bit somewhere. Spooky! */
 
 #ifdef USE_BIT_LEVEL
-          if((posn = get_random_modifiable_posn_O_bit_lvl_contiguous(1, temp_len, branch_mask_O_bit_lvl)) == 0xffffffff) break;
+          if((posn = get_random_modifiable_posn_bit_level_contiguous(1, temp_len, branch_mask_bit_level)) == 0xffffffff) break;
           FLIP_BIT(out_buf, posn);
 #else
           if((posn = get_random_modifiable_posn(1, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
@@ -7390,8 +7390,8 @@ havoc_stage:
                     temp_len - del_from - del_len + 1);
 					
 #ifdef USE_BIT_LEVEL
-            memmove(branch_mask_O_bit_lvl + del_from*8, branch_mask_O_bit_lvl + (del_from + del_len)*8,
-                    (temp_len - del_from - del_len + 1)*8);
+            memmove(branch_mask_bit_level + del_from*8, branch_mask_bit_level + (del_from + del_len)*8,
+                    (temp_len - del_from - del_len)*8 + 1);
 #endif
 
             temp_len -= del_len;
@@ -7418,7 +7418,7 @@ havoc_stage:
             u8* new_branch_mask; 
 			
 #ifdef USE_BIT_LEVEL
-            u8* new_branch_mask_O_bit_lvl; 
+            u8* new_branch_mask_bit_level; 
 #endif
 
             if (actually_clone) {
@@ -7438,14 +7438,14 @@ havoc_stage:
             new_buf = ck_alloc_nozero(temp_len + clone_len);
             new_branch_mask = alloc_branch_mask(temp_len + clone_len + 1);
 #ifdef USE_BIT_LEVEL
-            new_branch_mask_O_bit_lvl = alloc_branch_mask((temp_len + clone_len + 1)*8);
+            new_branch_mask_bit_level = alloc_branch_mask((temp_len + clone_len)*8 + 1);
 #endif
 
             /* Head */
             memcpy(new_buf, out_buf, clone_to);
             memcpy(new_branch_mask, branch_mask, clone_to);
 #ifdef USE_BIT_LEVEL
-            memcpy(new_branch_mask_O_bit_lvl, branch_mask_O_bit_lvl, clone_to*8);
+            memcpy(new_branch_mask_bit_level, branch_mask_bit_level, clone_to*8);
 #endif
 
             /* Inserted part */
@@ -7462,20 +7462,20 @@ havoc_stage:
             memcpy(new_branch_mask + clone_to + clone_len, branch_mask + clone_to,
                    temp_len - clone_to + 1);
 #ifdef USE_BIT_LEVEL
-            memcpy(new_branch_mask_O_bit_lvl + (clone_to + clone_len)*8, branch_mask_O_bit_lvl + clone_to*8,
-                   (temp_len - clone_to + 1)*8);
+            memcpy(new_branch_mask_bit_level + (clone_to + clone_len)*8, branch_mask_bit_level + clone_to*8,
+                   (temp_len - clone_to)*8 + 1);
 #endif
 
             ck_free(out_buf);
             ck_free(branch_mask);
 #ifdef USE_BIT_LEVEL
-            ck_free(branch_mask_O_bit_lvl);
+            ck_free(branch_mask_bit_level);
 #endif
 
             out_buf = new_buf;
             branch_mask = new_branch_mask;
 #ifdef USE_BIT_LEVEL
-            branch_mask_O_bit_lvl = new_branch_mask_O_bit_lvl;
+            branch_mask_bit_level = new_branch_mask_bit_level;
 #endif
 
             temp_len += clone_len;
@@ -7587,7 +7587,7 @@ havoc_stage:
              if (insert_at == 0xffffffff) break;
             u8* new_buf, * new_branch_mask;
 #ifdef USE_BIT_LEVEL
-            u8* new_branch_mask_O_bit_lvl;
+            u8* new_branch_mask_bit_level;
 #endif
 
             /* Insert an extra. Do the same dice-rolling stuff as for the
@@ -7603,14 +7603,14 @@ havoc_stage:
               new_buf = ck_alloc_nozero(temp_len + extra_len);
               new_branch_mask = alloc_branch_mask(temp_len + extra_len + 1);
 #ifdef USE_BIT_LEVEL
-              new_branch_mask_O_bit_lvl = alloc_branch_mask((temp_len + extra_len + 1)*8);
+              new_branch_mask_bit_level = alloc_branch_mask((temp_len + extra_len)*8 + 1);
 #endif
 
               /* Head */
               memcpy(new_buf, out_buf, insert_at);
               memcpy(new_branch_mask, branch_mask, insert_at);
 #ifdef USE_BIT_LEVEL
-              memcpy(new_branch_mask_O_bit_lvl, branch_mask_O_bit_lvl, insert_at*8);
+              memcpy(new_branch_mask_bit_level, branch_mask_bit_level, insert_at*8);
 #endif
 
               /* Inserted part */
@@ -7627,7 +7627,7 @@ havoc_stage:
 
               new_branch_mask = alloc_branch_mask(temp_len + extra_len + 1);
 #ifdef USE_BIT_LEVEL
-              new_branch_mask_O_bit_lvl = alloc_branch_mask((temp_len + extra_len + 1)*8);
+              new_branch_mask_bit_level = alloc_branch_mask((temp_len + extra_len)*8 + 1);
 #endif
 
 
@@ -7635,7 +7635,7 @@ havoc_stage:
               memcpy(new_buf, out_buf, insert_at);
               memcpy(new_branch_mask, branch_mask, insert_at);
 #ifdef USE_BIT_LEVEL
-              memcpy(new_branch_mask_O_bit_lvl, branch_mask_O_bit_lvl, insert_at*8);
+              memcpy(new_branch_mask_bit_level, branch_mask_bit_level, insert_at*8);
 #endif
 
 
@@ -7651,18 +7651,18 @@ havoc_stage:
             memcpy(new_branch_mask + insert_at + extra_len, branch_mask + insert_at,
                    temp_len - insert_at + 1);
 #ifdef USE_BIT_LEVEL
-            memcpy(new_branch_mask_O_bit_lvl + (insert_at + extra_len)*8, branch_mask_O_bit_lvl + insert_at*8,
-                   (temp_len - insert_at + 1)*8);
+            memcpy(new_branch_mask_bit_level + (insert_at + extra_len)*8, branch_mask_bit_level + insert_at*8,
+                   (temp_len - insert_at)*8 + 1);
 #endif
 
             ck_free(out_buf);
             ck_free(branch_mask);
 #ifdef USE_BIT_LEVEL
-            ck_free(branch_mask_O_bit_lvl);
+            ck_free(branch_mask_bit_level);
 #endif
             branch_mask = new_branch_mask;
 #ifdef USE_BIT_LEVEL
-            branch_mask_O_bit_lvl = new_branch_mask_O_bit_lvl;
+            branch_mask_bit_level = new_branch_mask_bit_level;
 #endif
 
             out_buf   = new_buf;
@@ -7790,7 +7790,7 @@ havoc_stage:
       out_buf = ck_realloc(out_buf, len);
       branch_mask = ck_realloc(branch_mask, len + 1);
 #ifdef USE_BIT_LEVEL
-      branch_mask_O_bit_lvl = ck_realloc(branch_mask_O_bit_lvl, (len + 1)*8);
+      branch_mask_bit_level = ck_realloc(branch_mask_bit_level, len*8 + 1);
 #endif
       position_map = ck_realloc(position_map, sizeof (u32) * (len + 1));
       if (!position_map)
@@ -7800,7 +7800,7 @@ havoc_stage:
     memcpy(out_buf, in_buf, len);
     memcpy(branch_mask, orig_branch_mask, len + 1);
 #ifdef USE_BIT_LEVEL
-    memcpy(branch_mask_O_bit_lvl, orig_branch_mask_O_bit_lvl, (len + 1)*8);
+    memcpy(branch_mask_bit_level, orig_branch_mask_bit_level, len*8 + 1);
 #endif
 
 
@@ -7850,7 +7850,7 @@ retry_splicing:
     u32 tid, split_at;
     u8* new_buf, *new_branch_mask;
 #ifdef USE_BIT_LEVEL
-    u8* new_branch_mask_O_bit_lvl;
+    u8* new_branch_mask_bit_level;
 #endif
 
     s32 f_diff, l_diff;
@@ -7933,13 +7933,13 @@ retry_splicing:
     memcpy (orig_branch_mask, branch_mask, len + 1);
 	
 #ifdef USE_BIT_LEVEL
-    new_branch_mask_O_bit_lvl = alloc_branch_mask((len + 1)*8);
-    memcpy(new_branch_mask_O_bit_lvl, branch_mask_O_bit_lvl, MIN(split_at, temp_len + 1)*8);
-    ck_free(branch_mask_O_bit_lvl);
-    branch_mask_O_bit_lvl = new_branch_mask_O_bit_lvl;
-    ck_free(orig_branch_mask_O_bit_lvl);
-    orig_branch_mask_O_bit_lvl = ck_alloc((len +1)*8);
-    memcpy (orig_branch_mask_O_bit_lvl, branch_mask_O_bit_lvl, (len +1)*8);
+    new_branch_mask_bit_level = alloc_branch_mask(len*8 + 1);
+    memcpy(new_branch_mask_bit_level, branch_mask_bit_level, MIN(split_at*8, temp_len*8 + 1));
+    ck_free(branch_mask_bit_level);
+    branch_mask_bit_level = new_branch_mask_bit_level;
+    ck_free(orig_branch_mask_bit_level);
+    orig_branch_mask_bit_level = ck_alloc(len*8 + 1);
+    memcpy (orig_branch_mask_bit_level, branch_mask_bit_level, len*8 + 1);
 #endif
 
     position_map = ck_realloc(position_map, sizeof (u32) * (len + 1));
@@ -7992,8 +7992,8 @@ abandon_entry:
   ck_free(orig_branch_mask);
 
 #ifdef USE_BIT_LEVEL
-  ck_free(branch_mask_O_bit_lvl);
-  ck_free(orig_branch_mask_O_bit_lvl);
+  ck_free(branch_mask_bit_level);
+  ck_free(orig_branch_mask_bit_level);
 #endif
 
 
