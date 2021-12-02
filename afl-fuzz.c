@@ -6112,12 +6112,12 @@ skip_simple_bitflip:
   ck_free(mask_dump_fn);
   fclose(ece1776_mask_dump);
   
-  FILE *ece1776_mask_dump_O_bit_level = NULL;
-  u8 * mask_dump_O_bit_level_fn = alloc_printf("%s/mutation_mask_O_bit_level.data", out_dir);
-  ece1776_mask_dump_O_bit_level = fopen(mask_dump_O_bit_level_fn, "ab");
-  fwrite(branch_mask_bit_level, sizeof(u8), (ece1776_len + 1)*8, ece1776_mask_dump_O_bit_level);
-  ck_free(mask_dump_O_bit_level_fn);
-  fclose(ece1776_mask_dump_O_bit_level);
+  FILE *ece1776_mask_dump_bit_level = NULL;
+  u8 * mask_dump_bit_level_fn = alloc_printf("%s/mutation_mask_bit_level.data", out_dir);
+  ece1776_mask_dump_bit_level = fopen(mask_dump_bit_level_fn, "ab");
+  fwrite(branch_mask_bit_level, sizeof(u8), (ece1776_len)*8 + 1, ece1776_mask_dump_bit_level);
+  ck_free(mask_dump_bit_level_fn);
+  fclose(ece1776_mask_dump_bit_level);
 	
   FILE *ece1776_len_dump = NULL;
   u8 * len_dump_fn = alloc_printf("%s/input_len.data", out_dir);
