@@ -1,0 +1,6 @@
+#!/bin/bash
+
+./process_output input_len.data mutation_mask.data mutation_mask_bit_level.data mm_row mm_bit_row mm_p mm_bit_p mm_p_s mm_bit_p_s
+python3 plot_processed.py mm_p_s -o -d -i -total
+python3 plot_processed_bit.py mm_bit_p_s -o
+#python3 gen_graphs.py havoc-rb-hits.log test
