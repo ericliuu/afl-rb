@@ -31,8 +31,8 @@
 #define DEBUG1 fileonly
 #define DEBUG2 fileonly2
 
-#define COLLECT_HAVOC_STATS 1
-#define USE_BIT_LEVEL 1
+#define COLLECT_HAVOC_STATS
+#define USE_BIT_LEVEL
 
 #include "config.h"
 #include "types.h"
@@ -1076,6 +1076,7 @@ static u32 get_random_modifiable_posn(u32 num_to_modify, u8 mod_type, u32 map_le
   
 }
 
+#ifdef USE_BIT_LEVEL
 static u32 get_random_modifiable_posn_bit_level_contiguous(u32 num_to_modify, u32 map_len, u8* branch_mask_bit_level){
   u32 ret = 0xffffffff;
   
@@ -1109,6 +1110,7 @@ static u32 get_random_modifiable_posn_bit_level_contiguous(u32 num_to_modify, u3
   } 
   return ret;
 }
+#endif
 
 // just need a random element of branch_mask which & with 4
 // assumes map_len is len, not len + 1. be careful. 
@@ -4405,9 +4407,15 @@ static void show_stats(void) {
   banner_pad = (80 - banner_len) / 2;
   memset(tmp, ' ', banner_pad);
 
+#ifdef USE_BIT_LEVEL
+  sprintf(tmp + banner_pad, "%s " cLCY VERSION cLGN
+          " (%s)",  crash_mode ? cPIN "peruvian were-rabbit" : 
+          cYEL "american fuzzy lop - bit level", use_banner);
+#else
   sprintf(tmp + banner_pad, "%s " cLCY VERSION cLGN
           " (%s)",  crash_mode ? cPIN "peruvian were-rabbit" : 
           cYEL "american fuzzy lop", use_banner);
+#endif
 
   SAYF("\n%s\n\n", tmp);
 
@@ -6112,12 +6120,12 @@ skip_simple_bitflip:
   ck_free(mask_dump_fn);
   fclose(ece1776_mask_dump);
   
-  FILE *ece1776_mask_dump_O_bit_level = NULL;
-  u8 * mask_dump_O_bit_level_fn = alloc_printf("%s/mutation_mask_O_bit_level.data", out_dir);
-  ece1776_mask_dump_O_bit_level = fopen(mask_dump_O_bit_level_fn, "ab");
-  fwrite(branch_mask_bit_level, sizeof(u8), (ece1776_len + 1)*8, ece1776_mask_dump_O_bit_level);
-  ck_free(mask_dump_O_bit_level_fn);
-  fclose(ece1776_mask_dump_O_bit_level);
+  FILE *ece1776_mask_dump_bit_level = NULL;
+  u8 * mask_dump_bit_level_fn = alloc_printf("%s/mutation_mask_bit_level.data", out_dir);
+  ece1776_mask_dump_bit_level = fopen(mask_dump_bit_level_fn, "ab");
+  fwrite(branch_mask_bit_level, sizeof(u8), (ece1776_len)*8 + 1, ece1776_mask_dump_bit_level);
+  ck_free(mask_dump_bit_level_fn);
+  fclose(ece1776_mask_dump_bit_level);
 	
   FILE *ece1776_len_dump = NULL;
   u8 * len_dump_fn = alloc_printf("%s/input_len.data", out_dir);
