@@ -29,9 +29,11 @@
 #define _FILE_OFFSET_BITS 64
 
 #define DEBUG1 fileonly
-#define DEBUG2 fileonly2
 
+/* ECE1776 Directives */
+#define DEBUG2 update_havoc_rb_hits
 #define COLLECT_HAVOC_STATS
+#define COLLECT_BRANCH_COV_STATS 1
 #define USE_BIT_LEVEL
 
 #include "config.h"
@@ -395,6 +397,51 @@ static inline u8* alloc_branch_mask(u32 size) {
 
 }
 
+#ifdef USE_BIT_LEVEL
+/* Delete a bit of the input arr at the specified position and stores this result in new_arr,
+   assumes that each array element is 8 bits and treats it as a bit array
+*/
+static inline bool delete_arr_bit(u32 del_posn, u32 len, u8* arr, u8* new_arr) {
+  u8 mask, next_bit;
+  int same_up_to;
+
+  same_up_to = del_posn / 8;
+
+  if (!len) return false;
+  if (del_posn > len << 3) false;
+
+  // save some iterations by memcpying the duplicate entries
+  memcpy(new_arr, arr, same_up_to + 1);
+
+  // be careful to not reverse bit entires in each byte
+  for (int i = same_up_to; i < len; i++) {
+    for (int j = 0; j < 8; j++) {
+      if ((i << 3) + j >= del_posn) {
+
+        // if we are at the last bit of an element, we need to take the
+        // first bit from the next element
+        if (j == 7 && i < len-1) {
+          next_bit = ((arr[i+1] >> 7) & 1);
+        } else if (j == 7) {
+          continue;
+        }
+
+        // get bit at (7-j-1)th position of current arr element
+        else {
+          next_bit = (arr[i] >> (7-j-1)) & 1;
+        }
+
+        // insert (j+1)th position bit into the jth position
+        mask = ~(1 << j);
+        new_arr[i] = ((arr[i] & mask) | next_bit << j);
+      }
+    }
+  }
+
+  return true;
+}
+#endif
+
 // @LFB@ functions for logging
 void tee2(char const *fmt, ...) { 
     static FILE *f = NULL;
@@ -426,7 +473,7 @@ void fileonly (char const *fmt, ...) {
 }
 
 #ifdef COLLECT_HAVOC_STATS
-void fileonly2 (char const *fmt, ...) {
+void update_havoc_rb_hits(char const *fmt, ...) {
     static FILE *f = NULL;
     if (f == NULL) {
       u8 * fn = alloc_printf("%s/havoc-rb-hits.log", out_dir);
@@ -439,6 +486,7 @@ void fileonly2 (char const *fmt, ...) {
     va_end(ap);
 }
 #endif
+
 
 /* at the end of execution, dump the number of inputs hitting
    each branch to log */
@@ -466,6 +514,20 @@ static u64 get_cur_time(void) {
 
 }
 
+#ifdef COLLECT_BRANCH_COV_STATS
+void update_branch_cov(u32 num_virgin_bits, u32 total_bits) {
+    static FILE *f = NULL;
+    if (f == NULL) {
+      u8 * fn = alloc_printf("%s/branch_coverage.log", out_dir);
+      f= fopen(fn, "w");
+      ck_free(fn);
+    }
+
+    fprintf(f, "%llu, %u, %u, %0.02f%%\n", get_cur_time() / 1000,
+            total_bits - num_virgin_bits, total_bits,
+            (double)(total_bits - num_virgin_bits)*100 / total_bits);
+}
+#endif
 
 /* Get unix time in microseconds */
 
@@ -1077,7 +1139,7 @@ static u32 get_random_modifiable_posn(u32 num_to_modify, u8 mod_type, u32 map_le
 }
 
 #ifdef USE_BIT_LEVEL
-static u32 get_random_modifiable_posn_bit_level_contiguous(u32 num_to_modify, u32 map_len, u8* branch_mask_bit_level){
+static u32 get_random_modifiable_posn_bit_level_contiguous(u32 num_to_modify, u8 mod_type, u32 map_len, u8* branch_mask_bit_level){
   u32 ret = 0xffffffff;
   
   u32 position_map_len = 0;
@@ -1089,7 +1151,7 @@ static u32 get_random_modifiable_posn_bit_level_contiguous(u32 num_to_modify, u3
   // Loop from back to front, count bits of 1
   // When number of contiguous 1 >= num_to_modify, we start recording positions in position_map
   for (int i = (map_len*8-1); i >= 0 ; i --){
-	if (branch_mask_bit_level[i] == 1) {
+	if (branch_mask_bit_level[i] == mod_type) {
 	  counter++;
 	  if (counter >= num_to_modify) {
 	    valid_block = true;
@@ -4285,6 +4347,9 @@ static void check_term_size(void);
 static void show_stats(void) {
 
   static u64 last_stats_ms, last_plot_ms, last_ms, last_execs;
+#ifdef COLLECT_BRANCH_COV_STATS
+  static u64 last_branch_cov;
+#endif
   static double avg_exec;
   double t_byte_ratio, stab_ratio;
 
@@ -4361,8 +4426,20 @@ static void show_stats(void) {
 
     last_plot_ms = cur_ms;
     maybe_update_plot_file(t_byte_ratio, avg_exec);
- 
+
   }
+
+#ifdef COLLECT_BRANCH_COV_STATS
+  /* Update coverage info every 5 minutes */
+  if (cur_ms - last_branch_cov > 60 * 5 * 1000) {
+
+    last_branch_cov = cur_ms;
+    update_branch_cov(count_bits(virgin_bits), MAP_SIZE*8);
+
+  }
+#endif
+
+
 
   /* Honor AFL_EXIT_WHEN_DONE and AFL_BENCH_UNTIL_CRASH. */
 
@@ -5952,6 +6029,36 @@ re_run: // re-run when running in shadow mode
   stage_finds[STAGE_FLIP1]  += new_hit_cnt - orig_hit_cnt;
   stage_cycles[STAGE_FLIP1] += stage_max;
 
+#ifdef USE_BIT_LEVEL
+  if (rb_fuzzing && !shadow_mode && use_branch_mask > 0){
+
+    // buffer to clobber with new things
+    u8* tmp_buf = ck_alloc(len*8+1);
+
+    // check if we can delete this byte
+    stage_short = "rbrem1";
+
+    for (stage_cur = 0; stage_cur < len; stage_cur++) {
+
+      /* delete current bit from outbuf and store result in tmp_buf */
+      bool ret_val = delete_arr_bit(stage_cur, len, out_buf, tmp_buf);
+
+      // this should not happen
+      if (!ret_val)
+        continue;
+
+      if (common_fuzz_stuff(argv, tmp_buf, len - 1, 17)) goto abandon_entry;
+
+      /* if even with this byte deleted we hit the branch, can delete here */
+      if (hits_branch(rb_fuzzing - 1)){
+        branch_mask_bit_level[stage_cur] += 2;
+      }
+    }
+
+    ck_free(tmp_buf);
+  }
+#endif
+
   /* @RB@ */
   DEBUG1("%swhile bitflipping, %i of %i tries hit branch %i\n", shadow_prefix, successful_branch_tries, total_branch_tries, rb_fuzzing - 1);
 
@@ -7124,7 +7231,7 @@ havoc_stage:
           /* Flip a single bit somewhere. Spooky! */
 
 #ifdef USE_BIT_LEVEL
-          if((posn = get_random_modifiable_posn_bit_level_contiguous(1, temp_len, branch_mask_bit_level)) == 0xffffffff) break;
+          if((posn = get_random_modifiable_posn_bit_level_contiguous(1, 1, temp_len, branch_mask_bit_level)) == 0xffffffff) break;
           FLIP_BIT(out_buf, posn);
 #else
           if((posn = get_random_modifiable_posn(1, 1, temp_len, branch_mask, position_map)) == 0xffffffff) break;
@@ -7387,7 +7494,12 @@ havoc_stage:
 
             del_len = choose_block_len(temp_len - 1);
 
+#ifdef USE_BIT_LEVEL
+            del_from = get_random_modifiable_posn_bit_level_contiguous(del_len*8, 2, temp_len, branch_mask_bit_level);
+#else
             del_from = get_random_modifiable_posn(del_len*8, 2, temp_len, branch_mask, position_map);
+#endif
+
             if (del_from == 0xffffffff) break;
 
             memmove(out_buf + del_from, out_buf + del_from + del_len,
