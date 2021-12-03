@@ -29,10 +29,11 @@
 #define _FILE_OFFSET_BITS 64
 
 #define DEBUG1 fileonly
-#define DEBUG2 fileonly2
 
 /* ECE1776 Directives */
+#define DEBUG2 update_havoc_rb_hits
 #define COLLECT_HAVOC_STATS
+#define COLLECT_BRANCH_COV_STATS 1
 #define USE_BIT_LEVEL
 
 #include "config.h"
@@ -472,7 +473,7 @@ void fileonly (char const *fmt, ...) {
 }
 
 #ifdef COLLECT_HAVOC_STATS
-void fileonly2 (char const *fmt, ...) {
+void update_havoc_rb_hits(char const *fmt, ...) {
     static FILE *f = NULL;
     if (f == NULL) {
       u8 * fn = alloc_printf("%s/havoc-rb-hits.log", out_dir);
@@ -485,6 +486,7 @@ void fileonly2 (char const *fmt, ...) {
     va_end(ap);
 }
 #endif
+
 
 /* at the end of execution, dump the number of inputs hitting
    each branch to log */
@@ -512,6 +514,20 @@ static u64 get_cur_time(void) {
 
 }
 
+#ifdef COLLECT_BRANCH_COV_STATS
+void update_branch_cov(u32 num_virgin_bits, u32 total_bits) {
+    static FILE *f = NULL;
+    if (f == NULL) {
+      u8 * fn = alloc_printf("%s/branch_coverage.log", out_dir);
+      f= fopen(fn, "w");
+      ck_free(fn);
+    }
+
+    fprintf(f, "%llu, %u, %u, %0.02f%%\n", get_cur_time() / 1000,
+            total_bits - num_virgin_bits, total_bits,
+            (double)(total_bits - num_virgin_bits)*100 / total_bits);
+}
+#endif
 
 /* Get unix time in microseconds */
 
@@ -4331,6 +4347,9 @@ static void check_term_size(void);
 static void show_stats(void) {
 
   static u64 last_stats_ms, last_plot_ms, last_ms, last_execs;
+#ifdef COLLECT_BRANCH_COV_STATS
+  static u64 last_branch_cov;
+#endif
   static double avg_exec;
   double t_byte_ratio, stab_ratio;
 
@@ -4407,8 +4426,20 @@ static void show_stats(void) {
 
     last_plot_ms = cur_ms;
     maybe_update_plot_file(t_byte_ratio, avg_exec);
- 
+
   }
+
+#ifdef COLLECT_BRANCH_COV_STATS
+  /* Update coverage info every 5 minutes */
+  if (cur_ms - last_branch_cov > 60 * 5 * 1000) {
+
+    last_branch_cov = cur_ms;
+    update_branch_cov(count_bits(virgin_bits), MAP_SIZE*8);
+
+  }
+#endif
+
+
 
   /* Honor AFL_EXIT_WHEN_DONE and AFL_BENCH_UNTIL_CRASH. */
 
