@@ -33,8 +33,9 @@
 /* ECE1776 Directives */
 #define DEBUG2 update_havoc_rb_hits
 #define COLLECT_HAVOC_STATS
-#define COLLECT_BRANCH_COV_STATS 1
+#define COLLECT_BRANCH_COV_STATS
 #define USE_BIT_LEVEL
+#define USE_BIT_LEVEL_DELETE
 
 #include "config.h"
 #include "types.h"
@@ -397,7 +398,7 @@ static inline u8* alloc_branch_mask(u32 size) {
 
 }
 
-#ifdef USE_BIT_LEVEL
+#ifdef USE_BIT_LEVEL_DELETE
 /* Delete a bit of the input arr at the specified position and stores this result in new_arr,
    assumes that each array element is 8 bits and treats it as a bit array
 */
@@ -426,9 +427,9 @@ static inline bool delete_arr_bit(u32 del_posn, u32 len, u8* arr, u8* new_arr) {
           continue;
         }
 
-        // get bit at (7-j-1)th position of current arr element
+        // get bit at (j+1)th position of current arr element
         else {
-          next_bit = (arr[i] >> (7-j-1)) & 1;
+          next_bit = (arr[i] >> (j+1)) & 1;
         }
 
         // insert (j+1)th position bit into the jth position
@@ -6029,7 +6030,7 @@ re_run: // re-run when running in shadow mode
   stage_finds[STAGE_FLIP1]  += new_hit_cnt - orig_hit_cnt;
   stage_cycles[STAGE_FLIP1] += stage_max;
 
-#ifdef USE_BIT_LEVEL
+#ifdef USE_BIT_LEVEL_DELETE
   if (rb_fuzzing && !shadow_mode && use_branch_mask > 0){
 
     // buffer to clobber with new things
@@ -7494,7 +7495,7 @@ havoc_stage:
 
             del_len = choose_block_len(temp_len - 1);
 
-#ifdef USE_BIT_LEVEL
+#ifdef USE_BIT_LEVEL_DELETE
             del_from = get_random_modifiable_posn_bit_level_contiguous(del_len*8, 2, temp_len, branch_mask_bit_level);
 #else
             del_from = get_random_modifiable_posn(del_len*8, 2, temp_len, branch_mask, position_map);
