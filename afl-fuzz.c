@@ -414,7 +414,7 @@ static inline bool delete_arr_bit(u32 del_posn, u32 len, u8* arr, u8* new_arr) {
   // save some iterations by memcpying the duplicate entries
   memcpy(new_arr, arr, same_up_to + 1);
 
-  // be careful to not reverse bit entires in each byte
+  // be careful to not reverse bit entries in each byte
   for (int i = same_up_to; i < len; i++) {
     for (int j = 0; j < 8; j++) {
       if ((i << 3) + j >= del_posn) {
@@ -427,14 +427,14 @@ static inline bool delete_arr_bit(u32 del_posn, u32 len, u8* arr, u8* new_arr) {
           continue;
         }
 
-        // get bit at (j+1)th position of current arr element
+        // get bit at the position to the right of current arr element
         else {
-          next_bit = (arr[i] >> (j+1)) & 1;
+          next_bit = (arr[i] >> (7-j-1)) & 1;
         }
 
         // insert (j+1)th position bit into the jth position
-        mask = ~(1 << j);
-        new_arr[i] = ((arr[i] & mask) | next_bit << j);
+        mask = ~(1 << (7-j));
+        new_arr[i] = ((arr[i] & mask) | next_bit << (7-j));
       }
     }
   }
