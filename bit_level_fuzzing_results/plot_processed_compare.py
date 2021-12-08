@@ -8,6 +8,14 @@ plot_data_bytes = []
 plot_data_bits = []
 plot_data_histo = []
 
+plot_string = ""
+if ("-o" in sys.argv):
+    plot_string = "Overwrites"
+if ("-d" in sys.argv):
+    plot_string = "Deletes"
+if ("-i" in sys.argv):
+    plot_string = "Inserts"
+
 file1 = open('mm_p_s', 'r')
 count = 0
 for line in file1.readlines():
@@ -21,7 +29,7 @@ for line in file1.readlines():
         
     plot_data_bytes.append((
         data["Bytes"], 
-        data["Overwrites"]/data["Bytes"]*100
+        data[plot_string]/data["Bytes"]*100
     ))
     
     count += 1
@@ -39,7 +47,7 @@ for line in file2.readlines():
         
     plot_data_bits.append((
         data["Bits"], 
-        data["Overwrites"]/data["Bits"]*100
+        data[plot_string]/data["Bits"]*100
     ))
     
     count += 1
@@ -70,7 +78,7 @@ for data in plot_data_bytes:
     elif data[1] >= 90 and data[1] <= 100:
         plot_data_histo[9][1] += 1
     else:
-        print("Warning: Overwrite (Byte) section: {}", data)
+        print("Warning: (Byte) section: {}", data)
         
 for data in plot_data_bits:
     if data[1] >= 0 and data[1] < 10:
@@ -94,21 +102,21 @@ for data in plot_data_bits:
     elif data[1] >= 90 and data[1] <= 100:
         plot_data_histo[9][2] += 1
     else:
-        print("Warning: Overwrite (Bit) section: {}", data)
+        print("Warning: (Bit) section: {}", data)
         
 
-data_O_counts_bytes = [y[1] for y in plot_data_histo]
-data_O_counts_bits = [y[2] for y in plot_data_histo]
+data_counts_bytes = [y[1] for y in plot_data_histo]
+data_counts_bits = [y[2] for y in plot_data_histo]
 X = np.arange(10)
 fig = plt.figure(dpi=100, figsize=(14, 7))
 ax = fig.add_axes([0.1,0.1,0.8,0.8])
 plt.style.use('ggplot')
 
-ax.bar(X - 0.15, data_O_counts_bytes, width = 0.3, label="Byte Level")
-ax.bar(X + 0.15, data_O_counts_bits, width = 0.3, label="Bit Level")
+ax.bar(X - 0.15, data_counts_bytes, width = 0.3, label="Byte Level")
+ax.bar(X + 0.15, data_counts_bits, width = 0.3, label="Bit Level")
     
 plt.legend(loc="upper left")
-plt.title('Tcpdump (Approx. 13hr+, ' +str(count) + ' data points)')
+plt.title('- (Approx. -hr+, ' +str(count) + ' data points)')
 plt.xlabel('Buckets')
 plt.ylabel('Counts')
 plt.xticks(np.arange(10), ['0~10%', '10~20%', '20~30%', '30~40%', '40~50%', '50~60%', '60~70%', '70~80%', '80~90%', '90~100%'])
