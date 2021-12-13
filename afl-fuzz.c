@@ -6039,7 +6039,7 @@ re_run: // re-run when running in shadow mode
     // check if we can delete this byte
     stage_short = "rbrem1";
 
-    for (stage_cur = 0; stage_cur < len; stage_cur++) {
+    for (stage_cur = 0; stage_cur < stage_max; stage_cur++) {
 
       /* delete current bit from outbuf and store result in tmp_buf */
       bool ret_val = delete_arr_bit(stage_cur, len, out_buf, tmp_buf);
